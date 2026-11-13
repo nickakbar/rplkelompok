@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SmartSpend — Monitoring Pengeluaran & Evaluasi Anggaran (SQLite)</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <style>
+    body { background-color: #f1f5f9; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: #0f172a; }
+    .navbar-brand { font-weight: 700; letter-spacing: 0.3px; }
+    .card { border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04); }
+    .metric-value { font-size: 1.45rem; font-weight: 700; }
+    .sql-output { background: #0f172a; color: #38bdf8; font-family: 'Courier New', monospace; font-size: 0.85rem; border-radius: 8px; padding: 12px; max-height: 240px; overflow: auto; }
+  </style>
+</head>
+<body>
+
+  <!-- LOGIN VIEW -->
+  <div id="loginSection" class="container d-flex align-items-center justify-content-center min-vh-100">
+    <div class="card p-4" style="max-width: 420px; width: 100%;">
+      <div class="text-center mb-3">
+        <h4 class="fw-bold text-primary mb-1">SmartSpend SQLite</h4>
+        <p class="text-muted small mb-0">Sistem Monitoring Pengeluaran &amp; Evaluasi Anggaran</p>
+      </div>
+      <div id="dbStatusBadge" class="alert alert-info py-2 px-3 small text-center mb-3">
+        Memuat SQLite WebAssembly Engine...
+      </div>
+      <form id="loginForm">
+        <div class="mb-3">
+          <label class="form-label fw-semibold small">Username</label>
+          <input type="text" id="loginUser" class="form-control" value="user" required />
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold small">Password</label>
+          <input type="password" id="loginPass" class="form-control" value="user123" required />
+        </div>
+        <div id="loginAlert" class="alert alert-danger py-2 small d-none"></div>
+        <button type="submit" id="btnLogin" class="btn btn-primary w-100 fw-semibold" disabled>Masuk ke Dashboard</button>
+      </form>
+      <div class="mt-3 text-center text-muted small">
+        Akun Demo: <strong>user</strong> / <strong>user123</strong>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN APP VIEW -->
+  <div id="appSection" class="d-none">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary px-3 shadow-sm">
+      <div class="container-fluid">
+        <span class="navbar-brand">SmartSpend <span class="badge bg-light text-primary fs-6 ms-1">SQLite</span></span>
+        <div class="d-flex align-items-center gap-2">
+          <button id="btnExportSqlite" class="btn btn-sm btn-warning fw-semibold">Export .sqlite File</button>
+          <button id="btnLogout" class="btn btn-sm btn-outline-light">Logout</button>
+        </div>
+      </div>
+    </nav>
+
+    <div class="container py-4">
+      <!-- NAV TABS -->
+      <ul class="nav nav-pills mb-4" id="mainTabs">
+        <li class="nav-item">
+          <button class="nav-link active fw-semibold" data-bs-toggle="pill" data-bs-target="#tabDashboard">Dashboard &amp; Transaksi</button>
+        </li>
+        <li class="nav-item">
+          <button class="nav-link fw-semibold" data-bs-toggle="pill" data-bs-target="#tabConsole">SQLite Interactive Console</button>
+        </li>
+      </ul>
+
+      <div class="tab-content">
+        <!-- TAB 1: DASHBOARD -->
+        <div class="tab-pane fade show active" id="tabDashboard">
+          <!-- METRIC CARDS -->
+          <div class="row g-3 mb-4">
+            <div class="col-md-3">
+              <div class="card p-3">
+                <div class="text-muted small fw-semibold">Total Pemasukan</div>
+                <div id="valIncome" class="metric-value text-success mt-1">Rp 0</div>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="card p-3">
+                <div class="text-muted small fw-semibold">Total Pengeluaran</div>
+                <div id="valExpense" class="metric-value text-danger mt-1">Rp 0</div>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="card p-3">
+                <div class="text-muted small fw-semibold">Sisa Saldo</div>
+                <div id="valBalance" class="metric-value text-primary mt-1">Rp 0</div>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="card p-3">
+                <div class="text-muted small fw-semibold">Status Anggaran</div>
+                <div id="valBudgetStatus" class="metric-value mt-1">-</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- BUDGET PROGRESS -->
+          <div class="card p-3 mb-4">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+              <div>
+                <h6 class="fw-bold mb-0">Evaluasi Pagu Anggaran Bulanan</h6>
+                <small id="budgetInfoText" class="text-muted">Pagu: Rp 0 | Terpakai: 0%</small>
+              </div>
+              <div class="d-flex gap-2">
+                <input type="number" id="inputBudgetLimit" class="form-control form-control-sm" placeholder="Set Pagu (Rp)" style="width: 160px;" />
+                <button id="btnSaveBudget" class="btn btn-sm btn-primary">Simpan Pagu</button>
+              </div>
+            </div>
+            <div class="progress" style="height: 14px;">
+              <div id="budgetProgressBar" class="progress-bar bg-success" role="progressbar" style="width: 0%;"></div>
+            </div>
+          </div>
+
+          <!-- FORM & CHART -->
+          <div class="row g-4 mb-4">
+            <div class="col-lg-5">
+              <div class="card p-3 h-100">
+                <h6 class="fw-bold mb-3">Tambah Transaksi Baru</h6>
+                <form id="txForm">
+                  <div class="mb-2">
+                    <label class="form-label small fw-semibold">Jenis Transaksi</label>
+                    <select id="txType" class="form-select form-select-sm">
+                      <option value="EXPENSE">Pengeluaran (EXPENSE)</option>
+                      <option value="INCOME">Pemasukan (INCOME)</option>
+                    </select>
+                  </div>
+                  <div class="mb-2">
+                    <label class="form-label small fw-semibold">Kategori</label>
+                    <select id="txCategory" class="form-select form-select-sm">
+                      <option value="Makanan & Minuman">Makanan &amp; Minuman</option>
+                      <option value="Transportasi">Transportasi</option>
+                      <option value="Tagihan & Utilitas">Tagihan &amp; Utilitas</option>
+                      <option value="Pendidikan & Buku">Pendidikan &amp; Buku</option>
+                      <option value="Gaji / Uang Saku">Gaji / Uang Saku</option>
+                      <option value="Lainnya">Lainnya</option>
+                    </select>
+                  </div>
+                  <div class="mb-2">
+                    <label class="form-label small fw-semibold">Nominal (Rp)</label>
+                    <input type="number" id="txAmount" class="form-control form-control-sm" min="1" required />
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label small fw-semibold">Keterangan</label>
+                    <input type="text" id="txDesc" class="form-control form-control-sm" placeholder="Contoh: Makan siang kampus" required />
+                  </div>
+                  <button type="submit" class="btn btn-success btn-sm w-100 fw-semibold">Simpan ke SQLite</button>
+                </form>
+              </div>
+            </div>
+
+            <div class="col-lg-7">
+              <div class="card p-3 h-100">
+                <h6 class="fw-bold mb-2">Proporsi Pengeluaran per Kategori (SQL GROUP BY)</h6>
+                <div style="height: 230px; position: relative;">
+                  <canvas id="expenseChart"></canvas>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- TRANSACTIONS TABLE -->
+          <div class="card p-3">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+              <h6 class="fw-bold mb-0">Riwayat Transaksi (Tabel SQLite)</h6>
+              <div class="d-flex gap-2">
+                <select id="filterCategory" class="form-select form-select-sm" style="width: 180px;">
+                  <option value="ALL">Semua Kategori</option>
+                  <option value="Makanan & Minuman">Makanan &amp; Minuman</option>
+                  <option value="Transportasi">Transportasi</option>
+                  <option value="Tagihan & Utilitas">Tagihan &amp; Utilitas</option>
+                  <option value="Pendidikan & Buku">Pendidikan &amp; Buku</option>
+                  <option value="Gaji / Uang Saku">Gaji / Uang Saku</option>
+                  <option value="Lainnya">Lainnya</option>
+                </select>
+                <input type="text" id="searchQuery" class="form-control form-control-sm" placeholder="Cari keterangan..." style="width: 180px;" />
+              </div>
+            </div>
+            <div class="table-responsive">
+              <table class="table table-hover table-sm align-middle mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>ID</th>
+                    <th>Waktu</th>
+                    <th>Jenis</th>
+                    <th>Kategori</th>
+                    <th>Keterangan</th>
+                    <th class="text-end">Nominal</th>
+                    <th class="text-center">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody id="txTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 2: SQL CONSOLE -->
+        <div class="tab-pane fade" id="tabConsole">
+          <div class="card p-3">
+            <h6 class="fw-bold mb-2">SQLite Interactive Query Console</h6>
+            <p class="text-muted small mb-2">Jalankan kueri SQL secara langsung pada tabel <code>users</code>, <code>transactions</code>, dan <code>budgets</code>.</p>
+            <textarea id="sqlInput" class="form-control font-monospace mb-2" rows="3">SELECT id, type, category, amount, description, created_at FROM transactions ORDER BY id DESC;</textarea>
+            <div class="d-flex gap-2 mb-3">
+              <button id="btnRunSql" class="btn btn-primary btn-sm fw-semibold">Jalankan Kueri SQL</button>
+              <button id="btnResetDb" class="btn btn-outline-danger btn-sm">Reset Database Awal</button>
+            </div>
+            <div id="sqlOutput" class="sql-output">Hasil eksekusi kueri akan tampil di sini...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    let db = null;
+    let currentUserId = null;
+    let chartInstance = null;
+    const STORAGE_KEY = 'smartspend_sqlite_binary_v1';
+
+    const formatRp = (num) => 'Rp ' + Number(num || 0).toLocaleString('id-ID');
+
+    async function initDatabase() {
+      const SQL = await initSqlJs({
+        locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${file}`
+      });
+
+      const savedBase64 = localStorage.getItem(STORAGE_KEY);
+      if (savedBase64) {
+        const binary = Uint8Array.from(atob(savedBase64), c => c.charCodeAt(0));
+        db = new SQL.Database(binary);
+      } else {
+        db = new SQL.Database();
+        seedDatabase();
+      }
+
+      const badge = document.getElementById('dbStatusBadge');
+      badge.className = 'alert alert-success py-2 px-3 small text-center mb-3';
+      badge.textContent = 'SQLite Engine Aktif & Siap Digunakan';
+      document.getElementById('btnLogin').disabled = false;
+    }
+
+    function seedDatabase() {
+      db.run(`
+        CREATE TABLE IF NOT EXISTS users (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          username TEXT UNIQUE NOT NULL,
+          password TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS transactions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          type TEXT CHECK(type IN ('INCOME', 'EXPENSE')),
+          amount REAL NOT NULL,
+          category TEXT NOT NULL,
+          description TEXT,
+          created_at TEXT DEFAULT (datetime('now', 'localtime')),
+          FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS budgets (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER UNIQUE NOT NULL,
+          amount REAL NOT NULL,
+          FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+      `);
+      db.run(`INSERT INTO users (username, password) VALUES ('user', 'user123');`);
+      db.run(`INSERT INTO budgets (user_id, amount) VALUES (1, 2500000);`);
+      db.run(`INSERT INTO transactions (user_id, type, amount, category, description) VALUES
+        (1, 'INCOME', 3500000, 'Gaji / Uang Saku', 'Uang saku bulanan'),
+        (1, 'EXPENSE', 45000, 'Makanan & Minuman', 'Makan siang & kopi'),
+        (1, 'EXPENSE', 120000, 'Transportasi', 'Isi BBM & parkir'),
+        (1, 'EXPENSE', 350000, 'Tagihan & Utilitas', 'Paket data & listrik');
+      `);
+      persistDatabase();
+    }
+
+    function persistDatabase() {
+      const data = db.export();
+      let binary = '';
+      for (let i = 0; i < data.length; i++) binary += String.fromCharCode(data[i]);
+      localStorage.setItem(STORAGE_KEY, btoa(binary));
+    }
+
+    document.getElementById('loginForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const u = document.getElementById('loginUser').value.trim();
+      const p = document.getElementById('loginPass').value.trim();
+      const stmt = db.prepare('SELECT id FROM users WHERE username = ? AND password = ?');
+      stmt.bind([u, p]);
+      if (stmt.step()) {
+        currentUserId = stmt.getAsObject().id;
+        stmt.free();
+        document.getElementById('loginSection').classList.add('d-none');
+        document.getElementById('appSection').classList.remove('d-none');
+        refreshDashboard();
+      } else {
+        stmt.free();
+        const alertEl = document.getElementById('loginAlert');
+        alertEl.textContent = 'Username atau password salah!';
+        alertEl.classList.remove('d-none');
+      }
+    });
+
+    document.getElementById('btnLogout').addEventListener('click', () => {
+      currentUserId = null;
+      document.getElementById('appSection').classList.add('d-none');
+      document.getElementById('loginSection').classList.remove('d-none');
+    });
+
+    document.getElementById('txForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const type = document.getElementById('txType').value;
+      const category = document.getElementById('txCategory').value;
+      const amount = parseFloat(document.getElementById('txAmount').value);
+      const desc = document.getElementById('txDesc').value.trim();
+
+      db.run(
+        'INSERT INTO transactions (user_id, type, amount, category, description) VALUES (?, ?, ?, ?, ?)',
+        [currentUserId, type, amount, category, desc]
+      );
+      persistDatabase();
+      e.target.reset();
+      refreshDashboard();
+    });
+
+    document.getElementById('btnSaveBudget').addEventListener('click', () => {
+      const limit = parseFloat(document.getElementById('inputBudgetLimit').value);
+      if (!limit || limit <= 0) return alert('Masukkan nominal pagu yang valid.');
+      db.run(
+        'INSERT INTO budgets (user_id, amount) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET amount = excluded.amount',
+        [currentUserId, limit]
+      );
+      persistDatabase();
+      refreshDashboard();
+    });
+
+    function deleteTx(id) {
+      db.run('DELETE FROM transactions WHERE id = ? AND user_id = ?', [id, currentUserId]);
+      persistDatabase();
+      refreshDashboard();
+    }
+
+    function refreshDashboard() {
+      // 1. Summary Metrics
+      const incRes = db.exec(`SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE user_id = ${currentUserId} AND type = 'INCOME'`);
+      const expRes = db.exec(`SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE user_id = ${currentUserId} AND type = 'EXPENSE'`);
+      const budRes = db.exec(`SELECT COALESCE(amount, 0) FROM budgets WHERE user_id = ${currentUserId}`);
+
+      const totalIncome = incRes[0]?.values[0][0] || 0;
+      const totalExpense = expRes[0]?.values[0][0] || 0;
+      const budgetLimit = budRes[0]?.values[0][0] || 0;
+      const balance = totalIncome - totalExpense;
+
+      document.getElementById('valIncome').textContent = formatRp(totalIncome);
+      document.getElementById('valExpense').textContent = formatRp(totalExpense);
+      document.getElementById('valBalance').textContent = formatRp(balance);
+
+      // 2. Budget Evaluation
+      const pct = budgetLimit > 0 ? Math.round((totalExpense / budgetLimit) * 100) : 0;
+      const bar = document.getElementById('budgetProgressBar');
+      const statusEl = document.getElementById('valBudgetStatus');
+      bar.style.width = Math.min(pct, 100) + '%';
+
+      if (pct >= 100) {
+        bar.className = 'progress-bar bg-danger';
+        statusEl.textContent = 'OVERBUDGET';
+        statusEl.className = 'metric-value text-danger mt-1';
+      } else if (pct >= 75) {
+        bar.className = 'progress-bar bg-warning';
+        statusEl.textContent = 'WASPADA';
+        statusEl.className = 'metric-value text-warning mt-1';
+      } else {
+        bar.className = 'progress-bar bg-success';
+        statusEl.textContent = 'AMAN';
+        statusEl.className = 'metric-value text-success mt-1';
+      }
+      document.getElementById('budgetInfoText').textContent = `Pagu: ${formatRp(budgetLimit)} | Terpakai: ${pct}%`;
+
+      // 3. Transaction Table with Filter
+      const catFilter = document.getElementById('filterCategory').value;
+      const search = document.getElementById('searchQuery').value.toLowerCase();
+      let query = `SELECT id, created_at, type, category, description, amount FROM transactions WHERE user_id = ${currentUserId}`;
+      if (catFilter !== 'ALL') query += ` AND category = '${catFilter.replace(/'/g, "''")}'`;
+      query += ' ORDER BY id DESC';
+
+      const rows = db.exec(query)[0]?.values || [];
+      const tbody = document.getElementById('txTableBody');
+      tbody.innerHTML = '';
+
+      rows.filter(r => r[4].toLowerCase().includes(search)).forEach(r => {
+        const isInc = r[2] === 'INCOME';
+        tbody.innerHTML += `
+          <tr>
+            <td>#${r[0]}</td>
+            <td class="small text-muted">${r[1]}</td>
+            <td><span class="badge ${isInc ? 'bg-success' : 'bg-danger'}">${r[2]}</span></td>
+            <td>${r[3]}</td>
+            <td>${r[4]}</td>
+            <td class="text-end fw-semibold ${isInc ? 'text-success' : 'text-danger'}">${isInc ? '+' : '-'} ${formatRp(r[5])}</td>
+            <td class="text-center">
+              <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="deleteTx(${r[0]})">Hapus</button>
+            </td>
+          </tr>
+        `;
+      });
+
+      // 4. Category Chart
+      const catStats = db.exec(`SELECT category, SUM(amount) FROM transactions WHERE user_id = ${currentUserId} AND type = 'EXPENSE' GROUP BY category`)[0]?.values || [];
+      const labels = catStats.map(c => c[0]);
+      const values = catStats.map(c => c[1]);
+
+      if (chartInstance) chartInstance.destroy();
+      chartInstance = new Chart(document.getElementById('expenseChart'), {
+        type: 'doughnut',
+        data: {
+          labels: labels.length ? labels : ['Belum ada pengeluaran'],
+          datasets: [{
+            data: values.length ? values : [1],
+            backgroundColor: ['#2563eb', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#64748b']
+          }]
+        },
+        options: { responsive: true, maintainAspectRatio: false }
+      });
+    }
+
+    document.getElementById('filterCategory').addEventListener('change', refreshDashboard);
+    document.getElementById('searchQuery').addEventListener('input', refreshDashboard);
+
+    // Export .sqlite Binary File
+    document.getElementById('btnExportSqlite').addEventListener('click', () => {
+      const binaryArray = db.export();
+      const blob = new Blob([binaryArray], { type: 'application/x-sqlite3' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'smartspend_database.sqlite';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    // Interactive SQL Console
+    document.getElementById('btnRunSql').addEventListener('click', () => {
+      const sql = document.getElementById('sqlInput').value;
+      const out = document.getElementById('sqlOutput');
+      try {
+        const res = db.exec(sql);
+        persistDatabase();
+        refreshDashboard();
+        out.textContent = res.length ? JSON.stringify(res, null, 2) : 'Kueri berhasil dieksekusi (0 baris dikembalikan).';
+      } catch (err) {
+        out.textContent = 'SQL Error: ' + err.message;
+      }
+    });
+
+    document.getElementById('btnResetDb').addEventListener('click', () => {
+      if (confirm('Reset seluruh data SQLite ke pengaturan awal?')) {
+        localStorage.removeItem(STORAGE_KEY);
+        location.reload();
+      }
+    });
+
+    initDatabase();
+  </script>
+</body>
+</html>
